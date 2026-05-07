@@ -11,15 +11,12 @@ Always exits 0 — degrades to a sensible fallback if the API call fails.
 
 from __future__ import annotations
 
-import json
-import os
 import sys
-import urllib.error
-import urllib.request
+
+from _claude_api import DEFAULT_MODEL as MODEL
+from _claude_api import call_claude
 
 MAX_INPUT_CHARS = 80_000
-MODEL = os.environ.get("REVIEW_MODEL", "claude-sonnet-4-6")
-TIMEOUT_S = 180
 
 
 def build_prompt(content: str) -> str:
@@ -55,30 +52,6 @@ Input:
 """
 
 
-def call_api(prompt: str) -> str:
-    base = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
-    token = os.environ["ANTHROPIC_AUTH_TOKEN"]
-
-    body = {
-        "model": MODEL,
-        "max_tokens": 2048,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    req = urllib.request.Request(
-        f"{base}/v1/messages",
-        data=json.dumps(body).encode(),
-        headers={
-            "x-api-key": token,
-            "authorization": f"Bearer {token}",
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
-        data = json.loads(resp.read())
-    return "".join(block.get("text", "") for block in data.get("content", []))
-
-
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: release_notes.py <input_file>", file=sys.stderr)
@@ -90,7 +63,7 @@ def main() -> int:
         return 0
 
     try:
-        text = call_api(build_prompt(content))
+        text = call_claude(build_prompt(content))
     except Exception as e:
         # Fallback: just emit the commit list.
         print("## Release\n")

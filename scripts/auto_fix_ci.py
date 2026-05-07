@@ -18,15 +18,12 @@ Always exits 0 — the caller decides what to do based on the first line.
 
 from __future__ import annotations
 
-import json
-import os
 import sys
 import urllib.error
-import urllib.request
+
+from _claude_api import call_claude
 
 MAX_LOG_CHARS = 60_000
-MODEL = os.environ.get("REVIEW_MODEL", "claude-sonnet-4-6")
-TIMEOUT_S = 180
 
 
 PROMPT = """You are an automated CI fixer for the Shortlink demo
@@ -73,29 +70,6 @@ Failed log:
 """
 
 
-def call_api(prompt: str) -> str:
-    base = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
-    token = os.environ["ANTHROPIC_AUTH_TOKEN"]
-    body = {
-        "model": MODEL,
-        "max_tokens": 4096,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    req = urllib.request.Request(
-        f"{base}/v1/messages",
-        data=json.dumps(body).encode(),
-        headers={
-            "x-api-key": token,
-            "authorization": f"Bearer {token}",
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
-        data = json.loads(resp.read())
-    return "".join(b.get("text", "") for b in data.get("content", []))
-
-
 def strip_fences(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
@@ -128,11 +102,12 @@ def main() -> int:
             branch_diff = ""
 
     try:
-        text = call_api(
+        text = call_claude(
             PROMPT.format(
                 log=log[:MAX_LOG_CHARS],
                 branch_diff=branch_diff[:MAX_LOG_CHARS] or "(no branch diff provided)",
-            )
+            ),
+            max_tokens=4096,
         )
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
         print("NO_AUTOFIX_AVAILABLE")

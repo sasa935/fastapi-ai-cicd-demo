@@ -5,7 +5,7 @@ Usage:
   diagnose_ci.py <failed_log_file>
 
 Reads:
-  ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN — env vars
+  CLAUDE_CODE_OAUTH_TOKEN — env var (Max subscription OAuth token)
   GITHUB_RUN_URL, GITHUB_SHA, GITHUB_REPOSITORY — optional, for context
 
 Stdout: markdown ready to post as a PR comment.
@@ -14,15 +14,14 @@ Always exits 0 — diagnosis failures degrade to a comment, not a CI red.
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import urllib.error
-import urllib.request
+
+from _claude_api import DEFAULT_MODEL as MODEL
+from _claude_api import call_claude
 
 MAX_LOG_CHARS = 60_000
-MODEL = os.environ.get("REVIEW_MODEL", "claude-sonnet-4-6")
-TIMEOUT_S = 180
 
 
 def build_prompt(log: str) -> str:
@@ -64,30 +63,6 @@ Failed log:
 """
 
 
-def call_api(prompt: str) -> str:
-    base = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
-    token = os.environ["ANTHROPIC_AUTH_TOKEN"]
-
-    body = {
-        "model": MODEL,
-        "max_tokens": 2048,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    req = urllib.request.Request(
-        f"{base}/v1/messages",
-        data=json.dumps(body).encode(),
-        headers={
-            "x-api-key": token,
-            "authorization": f"Bearer {token}",
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
-        data = json.loads(resp.read())
-    return "".join(block.get("text", "") for block in data.get("content", []))
-
-
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: diagnose_ci.py <log_file>", file=sys.stderr)
@@ -99,7 +74,7 @@ def main() -> int:
         return 0
 
     try:
-        text = call_api(build_prompt(log))
+        text = call_claude(build_prompt(log))
     except urllib.error.HTTPError as e:
         body = e.read().decode(errors="replace")[:2000]
         print(f"## ⚠️ Diagnosis failed\n\nHTTP {e.code}\n\n```\n{body}\n```")
