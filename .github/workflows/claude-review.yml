@@ -7,6 +7,8 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  id-token: write
+  actions: read
 
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
@@ -22,21 +24,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get PR diff
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh pr diff ${{ github.event.pull_request.number }} > pr.diff
+      - name: Claude Code review
+        uses: anthropics/claude-code-action@v1
+        with:
+          # Subscription auth via the Claude Code GitHub App.
+          # No API key needed — runs against the connected Claude Pro/Max account.
+          use_oauth: "true"
+          prompt: |
+            You are reviewing a pull request for the Shortlink demo
+            (FastAPI + Vite/React/TS).
 
-      - name: Ask Claude
-        env:
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        run: python scripts/review_pr.py pr.diff > review.md
+            Focus on:
+            - Correctness of new behaviour
+            - Security (URL validation, SQLAlchemy ORM only, no shell/SQL injection)
+            - Test coverage for new logic
+            - Obvious code smells
 
-      - name: Show review (CI logs)
-        run: cat review.md
-
-      - name: Post review as PR comment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh pr comment ${{ github.event.pull_request.number }} --body-file review.md
+            Skip nitpicks. Be concise. Use markdown headings + bullets.
+            End with a one-line verdict, e.g. "**Verdict:** ship it".
+            Reply via `gh pr comment` on the current PR.
+          claude_args: "--allowedTools Bash(gh pr comment:*),Bash(gh pr diff:*)"
