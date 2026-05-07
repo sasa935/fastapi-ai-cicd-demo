@@ -7,9 +7,10 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  issues: write
-  id-token: write
-  actions: read
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   review:
@@ -21,16 +22,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Claude Code review
-        uses: anthropics/claude-code-action@v1
+      - name: Get PR diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr diff ${{ github.event.pull_request.number }} > pr.diff
+
+      - name: Ask Claude
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
-          prompt: |
-            You are reviewing a pull request for the Shortlink demo (FastAPI backend + Vite/React/TS frontend).
-            Focus on: correctness, security (URL validation, SQL via SQLAlchemy ORM only, no command injection),
-            test coverage for new logic, and obvious code smells. Skip nitpicks. If everything looks good,
-            say so concisely. Reply on the PR with your findings.
-          claude_args: "--allowedTools Bash(gh pr comment:*),Bash(gh pr diff:*)"
+        run: python scripts/review_pr.py pr.diff > review.md
+
+      - name: Show review (CI logs)
+        run: cat review.md
+
+      - name: Post review as PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment ${{ github.event.pull_request.number }} --body-file review.md
