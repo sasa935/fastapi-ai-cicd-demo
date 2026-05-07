@@ -39,7 +39,7 @@ def _click_counts(db: Session, link_ids: list[int]) -> dict[int, int]:
     return {link_id: count for link_id, count in rows}
 
 
-@api.post("/links", response_model=LinkOut, status_code=status.HTTP_200_OK)
+@api.post("/links", response_model=LinkOut, status_code=status.HTTP_201_CREATED)
 def create_link(payload: LinkCreate, db: DBSession) -> LinkOut:
     for _ in range(5):
         code = generate_code(settings.code_length)
