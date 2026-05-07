@@ -1,0 +1,31 @@
+app = "shortlink-sasa935"
+primary_region = "nrt"
+
+[build]
+
+[env]
+  DATABASE_URL = "sqlite:////data/shortlink.db"
+  BASE_URL = "https://shortlink-sasa935.fly.dev"
+
+[[mounts]]
+  source = "shortlink_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "30s"
+  method = "get"
+  timeout = "5s"
+  path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

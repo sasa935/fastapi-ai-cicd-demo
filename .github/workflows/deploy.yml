@@ -1,0 +1,143 @@
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  wait-for-ci:
+    name: Wait for CI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for CI workflow on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in $(seq 1 60); do
+            run=$(gh run list --repo ${{ github.repository }} \
+              --workflow=CI --commit ${{ github.sha }} \
+              --json databaseId,status,conclusion --limit 1)
+            status=$(echo "$run" | jq -r '.[0].status // "missing"')
+            conclusion=$(echo "$run" | jq -r '.[0].conclusion // ""')
+            echo "iter=$i status=$status conclusion=$conclusion"
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "CI green — proceeding"
+                exit 0
+              else
+                echo "CI not green ($conclusion) — aborting deploy"
+                exit 1
+              fi
+            fi
+            sleep 15
+          done
+          echo "CI did not finish in time" >&2
+          exit 1
+
+  deploy:
+    name: Fly deploy
+    needs: wait-for-ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: fly deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only
+
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 https://shortlink-sasa935.fly.dev/healthz || true)
+            if [ "$code" = "200" ]; then
+              echo "smoke test ✓"
+              exit 0
+            fi
+            echo "iter=$i HTTP $code"
+            sleep 5
+          done
+          echo "smoke test failed"
+          exit 1
+
+  release-notes:
+    name: AI release notes
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute commit range since last release
+        id: range
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh release list --repo ${{ github.repository }} --limit 1 --json tagName --jq '.[0].tagName // empty')
+          if [ -z "$last" ]; then
+            base=$(git rev-list --max-parents=0 HEAD | tail -1)
+            echo "no previous release — using initial commit $base"
+          else
+            base=$(git rev-list -n 1 "$last")
+            echo "last release: $last ($base)"
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Collect commits and diff
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+        run: |
+          {
+            echo "# Commits"
+            git log --pretty=format:"- %h %s" "$BASE..HEAD"
+            echo ""
+            echo ""
+            echo "# Diff (truncated)"
+            git diff "$BASE..HEAD" --stat
+            echo ""
+            echo "## Patch"
+            git diff "$BASE..HEAD" | head -c 80000
+          } > release_input.md
+          wc -l release_input.md
+
+      - name: Generate release notes with Claude
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+        run: python scripts/release_notes.py release_input.md > release_notes.md
+
+      - name: Show notes (CI logs)
+        run: cat release_notes.md
+
+      - name: Compute next tag
+        id: tag
+        run: |
+          today=$(date -u +%Y.%m.%d)
+          existing=$(git tag --list "v${today}*" | wc -l | tr -d ' ')
+          if [ "$existing" = "0" ]; then
+            tag="v${today}"
+          else
+            tag="v${today}.${existing}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "new tag: $tag"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create ${{ steps.tag.outputs.tag }} \
+            --repo ${{ github.repository }} \
+            --target ${{ github.sha }} \
+            --title "${{ steps.tag.outputs.tag }} — deployed to Fly" \
+            --notes-file release_notes.md
