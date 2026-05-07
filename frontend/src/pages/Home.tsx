@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CopyButton } from "../components/CopyButton";
 import { api, type Link } from "../lib/api";
 
 export function Home() {
@@ -6,14 +7,12 @@ export function Home() {
   const [result, setResult] = useState<Link | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setResult(null);
-    setCopied(false);
     try {
       const link = await api.create(url);
       setResult(link);
@@ -23,13 +22,6 @@ export function Home() {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function copy() {
-    if (!result) return;
-    await navigator.clipboard.writeText(result.short_url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
   }
 
   return (
@@ -78,12 +70,7 @@ export function Home() {
             >
               {result.short_url}
             </a>
-            <button
-              onClick={copy}
-              className="rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
-            >
-              {copied ? "Copied!" : "Copy"}
-            </button>
+            <CopyButton value={result.short_url} />
           </div>
           <div className="mt-2 text-sm text-slate-600 truncate">
             → {result.original_url}
