@@ -1,0 +1,83 @@
+name: AI diagnose CI failure
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  diagnose:
+    name: Diagnose & comment
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Fetch failed-step logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run view ${{ github.event.workflow_run.id }} \
+            --repo ${{ github.repository }} \
+            --log-failed > failed.log || true
+          wc -c failed.log
+          head -c 200000 failed.log > failed.trimmed.log
+
+      - name: Diagnose with Claude
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          GITHUB_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          GITHUB_SHA: ${{ github.event.workflow_run.head_sha }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          {
+            echo "## 🩺 CI diagnosis"
+            echo ""
+            python scripts/diagnose_ci.py failed.trimmed.log
+          } > diagnosis.md
+
+      - name: Show diagnosis (CI logs)
+        run: cat diagnosis.md
+
+      - name: Find PR for this commit
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUM=$(jq -r '.workflow_run.pull_requests[0].number // empty' < "$GITHUB_EVENT_PATH")
+          if [ -z "$PR_NUM" ]; then
+            PR_NUM=$(gh pr list \
+              --repo ${{ github.repository }} \
+              --state open \
+              --search "${{ github.event.workflow_run.head_sha }}" \
+              --json number --jq '.[0].number // empty')
+          fi
+          echo "number=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "Resolved PR: ${PR_NUM:-<none>}"
+
+      - name: Post diagnosis to PR
+        if: ${{ steps.pr.outputs.number != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ steps.pr.outputs.number }} \
+            --repo ${{ github.repository }} \
+            --body-file diagnosis.md
+
+      - name: Open issue if no PR
+        if: ${{ steps.pr.outputs.number == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --repo ${{ github.repository }} \
+            --title "CI failure on main: $(echo ${{ github.event.workflow_run.head_sha }} | cut -c1-7)" \
+            --body-file diagnosis.md
