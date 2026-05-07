@@ -1,5 +1,7 @@
 # fastapi-ai-cicd-demo
 
+🚀 **Live demo:** https://shortlink-sasa935.fly.dev
+
 A small URL shortener whose **entire CI/CD is driven by AI**. The project
 itself (FastAPI backend + Vite/React frontend) is just a vehicle for learning
 how to let Claude agents handle code review, test maintenance, build
