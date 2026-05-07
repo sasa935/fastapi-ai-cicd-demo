@@ -168,8 +168,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           fix_branch="ai-fix/${BASE_BRANCH//\//-}-${HEAD_SHA:0:7}"
           git checkout -b "$fix_branch"
-          git apply fix.patch
-          git add -A
+          # --index applies AND stages only files in the patch — keeps the
+          # workflow's intermediate files (fix.patch, branch.diff, etc) out.
+          git apply --index fix.patch
           git commit -m "ai: auto-fix attempt for CI failure on ${HEAD_SHA:0:7}"
           git push origin "$fix_branch"
           echo "name=$fix_branch" >> "$GITHUB_OUTPUT"
