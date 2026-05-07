@@ -10,7 +10,7 @@ describe("Home", () => {
         <Home />
       </MemoryRouter>,
     );
-    expect(screen.getByRole("button", { name: /shorten/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /submit/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/url/i)).toBeInTheDocument();
   });
 });
