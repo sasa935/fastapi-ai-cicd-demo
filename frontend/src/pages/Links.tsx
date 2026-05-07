@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
+import { CopyButton } from "../components/CopyButton";
 import { api, type Link } from "../lib/api";
 
 export function Links() {
@@ -52,14 +53,17 @@ export function Links() {
           {links.map((l) => (
             <tr key={l.id}>
               <td className="px-4 py-2 font-mono">
-                <a
-                  href={l.short_url}
-                  className="text-slate-900 underline"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  /{l.code}
-                </a>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={l.short_url}
+                    className="text-slate-900 underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    /{l.code}
+                  </a>
+                  <CopyButton value={l.short_url} />
+                </div>
               </td>
               <td className="px-4 py-2 max-w-xs truncate text-slate-600">
                 {l.original_url}
