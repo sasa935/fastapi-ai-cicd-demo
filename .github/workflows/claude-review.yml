@@ -1,0 +1,33 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    name: Claude review
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Claude Code review
+        uses: anthropics/claude-code-action@v1
+        env:
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          prompt: |
+            You are reviewing a pull request for the Shortlink demo (FastAPI backend + Vite/React/TS frontend).
+            Focus on: correctness, security (URL validation, SQL via SQLAlchemy ORM only, no command injection),
+            test coverage for new logic, and obvious code smells. Skip nitpicks. If everything looks good,
+            say so concisely. Reply on the PR with your findings.
+          claude_args: "--allowedTools Bash(gh pr comment:*),Bash(gh pr diff:*)"
