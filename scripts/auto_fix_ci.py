@@ -2,7 +2,11 @@
 """Ask Claude for a unified-diff patch that fixes the failed CI logs.
 
 Usage:
-  auto_fix_ci.py <failed_log_file>
+  auto_fix_ci.py <failed_log_file> [<branch_diff_file>]
+
+The optional branch_diff_file should contain `git diff origin/main..HEAD`
+so Claude has both the failure AND the changes that introduced it.
+Without it, Claude often refuses because it can't see the source.
 
 Stdout:
   Either a unified diff (lines starting with `diff --git`) ready to feed
@@ -28,9 +32,17 @@ TIMEOUT_S = 180
 PROMPT = """You are an automated CI fixer for the Shortlink demo
 (FastAPI backend + Vite/React/TS frontend).
 
-Below is a failed CI log. If — and ONLY if — the fix is small, obvious,
-and confined to source code under `backend/` or `frontend/src/`, output
-a unified diff that resolves it.
+You will see TWO things below:
+  1. The diff of the changes the developer made on this branch (vs main)
+  2. The failed CI log
+
+Together these are usually enough context: pinpoint which line in the
+diff caused the failure and write a minimal patch that fixes it. Do NOT
+ask for more files — work with what is shown.
+
+If — and ONLY if — the fix is small, obvious, and confined to source
+code under `backend/` or `frontend/src/`, output a unified diff that
+resolves it.
 
 Strict rules:
 - Output ONLY the diff. No explanation, no markdown fences, no preamble.
@@ -48,6 +60,11 @@ Strict rules:
     <one sentence saying why>
 
   Nothing else.
+
+Branch diff (changes on this PR vs main):
+```
+{branch_diff}
+```
 
 Failed log:
 ```
@@ -92,9 +109,9 @@ def strip_fences(text: str) -> str:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
+    if len(sys.argv) not in (2, 3):
         print("NO_AUTOFIX_AVAILABLE")
-        print("usage: auto_fix_ci.py <log_file>")
+        print("usage: auto_fix_ci.py <log_file> [<branch_diff_file>]")
         return 0
 
     log = open(sys.argv[1]).read()
@@ -103,8 +120,20 @@ def main() -> int:
         print("Empty failed-log file")
         return 0
 
+    branch_diff = ""
+    if len(sys.argv) == 3:
+        try:
+            branch_diff = open(sys.argv[2]).read()
+        except OSError:
+            branch_diff = ""
+
     try:
-        text = call_api(PROMPT.format(log=log[:MAX_LOG_CHARS]))
+        text = call_api(
+            PROMPT.format(
+                log=log[:MAX_LOG_CHARS],
+                branch_diff=branch_diff[:MAX_LOG_CHARS] or "(no branch diff provided)",
+            )
+        )
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
         print("NO_AUTOFIX_AVAILABLE")
         print(f"API call failed: {type(e).__name__}: {e}")

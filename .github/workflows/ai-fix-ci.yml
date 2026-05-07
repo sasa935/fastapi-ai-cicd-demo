@@ -117,12 +117,18 @@ jobs:
           run-id: ${{ github.run_id }}
           github-token: ${{ github.token }}
 
+      - name: Compute branch diff vs main
+        run: |
+          git fetch origin main --depth=200 || true
+          git diff origin/main...HEAD > branch.diff || true
+          wc -c branch.diff
+
       - name: Ask Claude for a patch
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
         run: |
-          python scripts/auto_fix_ci.py failed.trimmed.log > fix.patch
+          python scripts/auto_fix_ci.py failed.trimmed.log branch.diff > fix.patch
           echo "--- patch first 5 lines ---"
           head -5 fix.patch
 
